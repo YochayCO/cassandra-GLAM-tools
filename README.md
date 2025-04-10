@@ -78,6 +78,7 @@ The daily script runs every day at 4:00 AM
 ### Run daily cronjob
 
 ```bash
+export ENV=production
 pm2 start daily.py --cron '0 4 * * *' --interpreter python3 --no-autorestart -- -e production
 ```
 
@@ -92,6 +93,7 @@ A Logs folder will be created, every day  at 4:00 AM a new file will be added wi
 ### Run new glam listener
 
 ```bash
+export ENV=production
 pm2 start new_glam_listener.py --interpreter python3 -- -e production
 ```
 
@@ -118,3 +120,14 @@ docker-compose up -d
 5. **Make sure that the `new_glam_listener` is running**
 6. **Create a new GLAM** with the relevant details of the organization
 7. Make sure that the `new_glam_listener` finishes the job
+
+## Filling gaps
+If the daily service was down for a few days we need to fill the gaps from the last date that was scanned.
+
+```bash
+export ENV=production
+pm2 start fill_gaps.py --interpreter python3 -- --start-date %Y-%m-%d -e production
+```
+
+Date format is 2025-04-20. Start-date is mandatory.
+Important: Script loads for a minute or two and only then starts logging.
