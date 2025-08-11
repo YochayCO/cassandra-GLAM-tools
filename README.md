@@ -131,3 +131,26 @@ pm2 start fill_gaps.py --interpreter python3 -- --start-date %Y-%m-%d -e product
 
 Date format is 2025-04-20. Start-date is mandatory.
 Important: Script loads for a minute or two and only then starts logging.
+
+
+About the `config.[env].json` file format:
+* `postgres`: Read from postgres
+* `postgresWrite`: Write to postgres
+* `wmflabs`: Connect to mariadb - to be able to fetch wikicommons analytics (of categories and all the important data). Accessible only from wiki cloud 
+* `admin`: Admin credentials (for the Admin Panel)
+* `aws`
+* `glamUser`
+* `mediacountStartDate`
+* `limits`
+
+app config also has:
+* `newGlamServiceEndpoint`: The endpoint to which the app sends a post request, when adding a new GLAM
+
+About `new_glam_listener.py`
+
+* Needs access to postgres, mariadb
+* mariadb not accessible from localhost - it is on wiki cloud
+
+## For future caution
+
+* Note issue https://phabricator.wikimedia.org/T396724 . Particularly, if posgresql is ever updated from 12.7, it might reset its settings and archive might blow up again.
