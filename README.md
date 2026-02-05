@@ -154,3 +154,13 @@ About `new_glam_listener.py`
 ## For future caution
 
 * Note issue https://phabricator.wikimedia.org/T396724 . Particularly, if posgresql is ever updated from 12.7, it might reset its settings and archive might blow up again.
+
+## Useful sources for support
+* [Subscribe to the announcements from wikimedia support for important server notifications](https://lists.wikimedia.org/postorius/lists/cloud-announce.lists.wikimedia.org/)
+* They also appear in the [News section in WikiTech](https://wikitech.wikimedia.org/wiki/News)
+* If you ever need to add a new server / more resources - this is [the location to ask for additional quota](https://phabricator.wikimedia.org/project/view/2880/). This is rare and should not be used for most issues even if they involve low resources.
+* Telegram channel - Very helpful direct line of human support. Used it whenever I couldn't solve something on my own. They have permissions that we don't.
+* More formally, they work with [Phabricator](https://phabricator.wikimedia.org/) - but some issues don't even deserve to be opened there.
+* Some helpful documentation is in [Wikitech](https://wikitech.wikimedia.org/)
+* Our servers are managed in [Horizon Wikimedia cloud services](https://horizon.wikimedia.org/). Default project on login is alphabetically ordered, so make sure that you are on the right project and not on bastion - the mediating/center server (for ssh and more)
+* Toolforge - it exists but I'm not sure what we need it for if at all.
