@@ -286,30 +286,35 @@ async function afterUsages() {
 
 var buildUsageQuery = function (RQ) {
   return `SELECT gil_wiki, gil_page_title, gil_to
-    FROM globalimagelinks, categorylinks, page, image
-    WHERE cl_to IN (${RQ})
-    AND gil_to = img_name
-    AND gil_page_namespace_id = '0'
-    AND page_id = cl_from
-    AND page_namespace = 6
-    AND img_name = page_title`;
+    FROM globalimagelinks
+    JOIN image ON gil_to = img_name
+    JOIN page ON img_name = page_title AND page_namespace = 6
+    JOIN categorylinks ON page_id = cl_from
+    JOIN linktarget ON cl_target_id = lt_id
+    WHERE lt_namespace = 14
+    AND lt_title IN (${RQ})
+    AND gil_page_namespace_id = '0'`;
 };
 var buildImageQuery = function (RQ) {
-  return `SELECT img_name, actor_name AS img_user_text, img_timestamp, img_size, cl_to
-    FROM categorylinks, page, image, actor
-    WHERE cl_to IN (${RQ})
-    AND page_id = cl_from
-    AND page_namespace = 6
-    AND img_name = page_title
-    AND img_actor = actor_id`;
+  return `SELECT img_name, actor_name AS img_user_text, img_timestamp, img_size, lt_title AS cl_to
+    FROM categorylinks
+    JOIN linktarget ON cl_target_id = lt_id
+    JOIN page ON page_id = cl_from
+    JOIN image ON img_name = page_title
+    JOIN actor ON img_actor = actor_id
+    WHERE lt_namespace = 14
+    AND lt_title IN (${RQ})
+    AND page_namespace = 6`;
 };
 var buildCategoryQuery = function (RQ) {
-  return `SELECT page_title, cl_to, cat_subcats, cat_files
-    FROM categorylinks, page, category
-    WHERE cl_to IN (${RQ})
-    AND page_id = cl_from
-    AND page_namespace = 14
-    AND page_title = cat_title`;
+  return `SELECT page_title, lt_title AS cl_to, cat_subcats, cat_files
+    FROM categorylinks
+    JOIN linktarget ON cl_target_id = lt_id
+    JOIN page ON page_id = cl_from
+    JOIN category ON page_title = cat_title
+    WHERE lt_namespace = 14
+    AND lt_title IN (${RQ})
+    AND page_namespace = 14`;
 };
 
 // ENTRY POINT
