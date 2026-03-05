@@ -164,3 +164,14 @@ About `new_glam_listener.py`
 * Some helpful documentation is in [Wikitech](https://wikitech.wikimedia.org/)
 * Our servers are managed in [Horizon Wikimedia cloud services](https://horizon.wikimedia.org/). Default project on login is alphabetically ordered, so make sure that you are on the right project and not on bastion - the mediating/center server (for ssh and more)
 * Toolforge - it exists but I'm not sure what we need it for if at all.
+
+
+## Notes to self
+Making changes is currently hard.
+I don't have time to set up a local environment - it's not easy enough. 
+So I'm Cowboy-programming. 
+And another issue: My regular yochayco linux user has no permissions to edit files.
+So I'm either using vim, or doing 'save as' in `/tmp` folder and then copying from `mn__` user.
+And the worst part: This `mn__` user can't push to remote git.
+I've cloned the project and I can update it with `yochayco` but the local repo is out of sync since `yochayco` won't write to `.git` folder.
+From the cloned project I'm making PRs to yonatanmil but there is no real reason to do that I guess.
