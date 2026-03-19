@@ -79,7 +79,7 @@ The daily script runs every day at 4:00 AM
 
 ```bash
 export ENV=production
-pm2 start daily.py --cron '0 4 * * *' --interpreter python3 --no-autorestart -- -e production
+pm2 start daily.py --cron '0 4 * * *' --interpreter venv/bin/python --no-autorestart -- -e production
 ```
 
 ### Save the process

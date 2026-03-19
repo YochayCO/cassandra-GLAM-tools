@@ -41,7 +41,7 @@ pip install -r requirements.txt
 
 ### Phase 4: Execution & Verification
 
-* **Start the App:** Launch via PM2 (e.g., `pm2 start app.js --name "my-app"`).
+* **Start the App:** Launch via PM2 (e.g., `pm2 start app.js --name "my-app" --interpreter venv/bin/python`).
 * **Local Health Check:** Use `curl http://localhost:8081` to verify the process is responding internally.
 * **Log Monitoring:** Use `pm2 logs` or `pm2 monit` to watch for runtime errors.
 
