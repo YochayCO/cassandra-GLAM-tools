@@ -5,9 +5,7 @@ t varchar(255)[];
 l int[];
 begin
 IF EXISTS (SELECT 1 FROM categories WHERE page_title = title) THEN
-t[0]:=_to;
-l[0]:=_level;
-update categories set cat_subcats=subcats, cat_files=files, cl_to=t, cat_level=l where page_title=title;
+update categories set cat_subcats=subcats, cat_files=files, cl_to=cl_to||_to, cat_level=cat_level||_level where page_title=title;
 else
 t[0]:=_to;
 l[0]:=_level;

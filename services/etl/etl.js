@@ -29,6 +29,12 @@ async function finalize(failure) {
   for (let i = 0; i < catFreeTail; i++) {
     titles.push(catQueue[i].page_title);
   }
+  if (titles.length) {
+    await glam.connection.query(
+      "UPDATE categories SET cl_to='{}', cat_level='{}' WHERE page_title = ANY($1)",
+      [titles]
+    );
+  }
   await glam.connection.query(categorySql + "select * from doMaintenance();");
   if (titles.length) {
     await glam.connection.query(
@@ -179,8 +185,10 @@ async function loadImages() {
   );
   if (
     prev.rows[0] &&
-    prev.rows[0].cat_files === catQueue[catHead].cat_files &&
-    prev.rows[0].cat_subcats === catQueue[catHead].cat_subcats
+    prev.rows[0].cat_files != null &&
+    prev.rows[0].cat_subcats != null &&
+    Number(prev.rows[0].cat_files) === Number(catQueue[catHead].cat_files) &&
+    Number(prev.rows[0].cat_subcats) === Number(catQueue[catHead].cat_subcats)
   ) {
     catHead++;
     return loadImages();

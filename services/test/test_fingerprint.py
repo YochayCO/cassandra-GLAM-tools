@@ -53,8 +53,12 @@ def test_load_images_skips_when_counts_match():
         "SELECT cat_files, cat_subcats FROM categories WHERE page_title = $1"
         in body
     )
-    assert "prev.rows[0].cat_files === catQueue[catHead].cat_files" in body
-    assert "prev.rows[0].cat_subcats === catQueue[catHead].cat_subcats" in body
+    assert "Number(prev.rows[0].cat_files) === Number(catQueue[catHead].cat_files)" in body
+    assert (
+        "Number(prev.rows[0].cat_subcats) === Number(catQueue[catHead].cat_subcats)"
+        in body
+    )
+    assert "prev.rows[0].cat_files != null" in body
     assert body.index("keep in sync") < body.index("buildImageQuery")
 
 
@@ -62,6 +66,15 @@ def test_load_images_stamps_last_crawled_at():
     body = _fn("loadImages")
     assert "UPDATE categories SET last_crawled_at = NOW()" in body
     assert body.index("buildImageQuery") < body.index("last_crawled_at")
+
+
+def test_finalize_clears_parent_arrays_before_addcategory():
+    body = _fn("finalize")
+    clear = "UPDATE categories SET cl_to='{}', cat_level='{}' WHERE page_title = ANY($1)"
+    assert clear in body
+    assert body.index("process.exit(65)") < body.index(clear)
+    assert body.index(clear) < body.index("categorySql")
+    assert "images SET cl_to" not in body
 
 
 def test_finalize_deletes_vanished_categories_after_success():
@@ -83,14 +96,15 @@ def test_finalize_marks_images_without_remaining_categories():
     assert body.index("DELETE FROM categories") < body.index(stmt)
 
 
-def test_add_category_assigns_on_existing_row():
+def test_add_category_assigns_counts_and_appends_parents():
     for path in (ADD_CATEGORY_SQL, FUNCTIONS_SQL):
-        src = _compact(_sql_fn(path, "AddCategory"))
-        assert "cl_to=cl_to||_to" not in src.replace(" ", "")
-        assert "cat_level=cat_level||_level" not in src.replace(" ", "")
-        assert "update categories set" in src
-        assert "cat_files" in src.split("else")[0]
-        assert "cat_subcats" in src.split("else")[0]
+        existing = _compact(_sql_fn(path, "AddCategory")).split("else")[0]
+        compact = existing.replace(" ", "")
+        assert "cat_files=files" in compact
+        assert "cat_subcats=subcats" in compact
+        assert "cl_to=cl_to||_to" in compact
+        assert "cat_level=cat_level||_level" in compact
+        assert "cl_to=t" not in compact
 
 
 def test_add_image_replaces_membership_on_alive_row():
