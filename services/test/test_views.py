@@ -3,6 +3,7 @@ from etl.views import (
     load_views_for_date,
     parse_dump_line,
     percentile_cont,
+    recompute_all_stats,
     should_skip_views,
     stats_row,
 )
@@ -128,4 +129,28 @@ def test_load_views_for_date_fake_conn(tmp_path):
     assert rparams == (day,)
 
     assert any("insert into visualizations_sum_t" in _norm(s) for s, _ in load.executed)
-    assert any("update snapshot_state" in _norm(s) and p == (day,) for s, p in load.executed)
+    assert any(
+        "greatest(views_loaded_for" in _norm(s) and p == (day,)
+        for s, p in load.executed
+    )
+
+
+def test_load_views_for_date_skip_loaded_false(tmp_path):
+    day = date(2026, 9, 17)
+    already = FakeConn(loaded_for=day, images=[("Foo_bar.jpg", 7)])
+    dump = tmp_path / "day.tsv"
+    dump.write_text(_tsv_line("Foo_bar.jpg", 9, 4, 5))
+    load_views_for_date([{"conn": already}], str(dump), day, skip_loaded=False)
+    assert already.bound == [(7, day, 9, 4, 5)]
+
+
+def test_recompute_all_stats_full_history():
+    conn = FakeConn(loaded_for=None, images=[])
+    recompute_all_stats(conn)
+    sqls = [_norm(s) for s, _ in conn.executed]
+    assert any(
+        "update images" in s
+        and "group by media_id" in s
+        and "with touched as" not in s
+        for s in sqls
+    )

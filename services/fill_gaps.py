@@ -1,7 +1,7 @@
 from concurrent.futures import ProcessPoolExecutor, wait
 import multiprocessing
 import sys
-from etl.views import load_views_for_date
+from etl.views import load_views_for_date, recompute_all_stats
 import logging
 import signal
 from typing import List
@@ -15,7 +15,7 @@ def _daily_insert(glams, filepath, date_val, pos, should_exit):
     # and therefore are required to be opened again
     open_glams_connections(glams)
     try:
-        load_views_for_date(glams, filepath, date_val)
+        load_views_for_date(glams, filepath, date_val, skip_loaded=False)
     except Exception as e:
         logging.exception(e)
     close_glams_connections(glams)
@@ -44,6 +44,12 @@ def fill_gaps(start_date, end_date, glams, num_of_workers):
                 i += 1
             except Exception as err:
                 logging.error(f"Error loading mediacount for date {date_val}:\n{err}")
+    open_glams_connections(glams)
+    try:
+        for glam in glams:
+            recompute_all_stats(glam['conn'])
+    finally:
+        close_glams_connections(glams)
 
 def _main(start_date: date, end_date: date, glams_names: List[str], num_of_workers):
     glams = get_active_glams()

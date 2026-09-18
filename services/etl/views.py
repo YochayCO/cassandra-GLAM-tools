@@ -68,6 +68,26 @@ def refresh_stats(conn, date_val):
     cur.close()
 
 
+def recompute_all_stats(conn):
+    cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE images i SET tot = s.tot, n_days = s.n_days, avg = s.avg, median = s.median
+        FROM (
+          SELECT media_id,
+                 SUM(accesses) AS tot,
+                 COUNT(*) AS n_days,
+                 AVG(accesses) AS avg,
+                 PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY accesses) AS median
+          FROM visualizations
+          GROUP BY media_id
+        ) s
+        WHERE i.media_id = s.media_id
+        """
+    )
+    cur.close()
+
+
 def _iter_dump(filepath):
     with open(filepath, "rb") as f:
         if str(filepath).endswith(".bz2"):
@@ -102,7 +122,10 @@ def _upsert_sum(conn, date_val):
 
 def _set_views_loaded_for(conn, date_val):
     cur = conn.cursor()
-    cur.execute("UPDATE snapshot_state SET views_loaded_for = %s", (date_val,))
+    cur.execute(
+        "UPDATE snapshot_state SET views_loaded_for = GREATEST(views_loaded_for, %s)",
+        (date_val,),
+    )
     if cur.rowcount == 0:
         cur.execute(
             "INSERT INTO snapshot_state (views_loaded_for) VALUES (%s)", (date_val,)
@@ -110,7 +133,7 @@ def _set_views_loaded_for(conn, date_val):
     cur.close()
 
 
-def load_views_for_date(glams, filepath, date_val):
+def load_views_for_date(glams, filepath, date_val, skip_loaded=True):
     active = []
     # ponytail: inverted name map is the same RAM as today's per-glam sets; COPY dump_day if this dict is the bottleneck
     name_to_targets = {}
@@ -122,7 +145,7 @@ def load_views_for_date(glams, filepath, date_val):
         cur.execute("SELECT views_loaded_for FROM snapshot_state LIMIT 1")
         row = cur.fetchone()
         loaded_for = None if row is None else row[0]
-        if should_skip_views(loaded_for, date_val):
+        if skip_loaded and should_skip_views(loaded_for, date_val):
             cur.close()
             continue
         cur.execute("SELECT img_name, media_id FROM images")
