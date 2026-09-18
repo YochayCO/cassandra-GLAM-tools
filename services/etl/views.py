@@ -43,12 +43,13 @@ def should_skip_views(loaded_for, date_val):
     return loaded_for is not None and loaded_for >= date_val
 
 
-def refresh_stats(conn, media_ids):
-    if not media_ids:
-        return
+def refresh_stats(conn, date_val):
     cur = conn.cursor()
     cur.execute(
         """
+        WITH touched AS (
+          SELECT DISTINCT media_id FROM visualizations WHERE access_date = %s
+        )
         UPDATE images i SET tot = s.tot, n_days = s.n_days, avg = s.avg, median = s.median
         FROM (
           SELECT v.media_id,
@@ -57,12 +58,12 @@ def refresh_stats(conn, media_ids):
                  AVG(v.accesses)::float AS avg,
                  PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY v.accesses) AS median
           FROM visualizations v
-          WHERE v.media_id = ANY(%s)
+          JOIN touched t ON t.media_id = v.media_id
           GROUP BY v.media_id
         ) s
         WHERE i.media_id = s.media_id
         """,
-        (list(media_ids),),
+        (date_val,),
     )
     cur.close()
 
@@ -133,7 +134,6 @@ def load_views_for_date(glams, filepath, date_val):
     if not active:
         return
     batches = [[] for _ in active]
-    touched = [set() for _ in active]
     for line in _iter_dump(filepath):
         parsed = parse_dump_line(line)
         if parsed is None:
@@ -141,12 +141,11 @@ def load_views_for_date(glams, filepath, date_val):
         name, tot, wm, nwm = parsed
         for gi, media_id in name_to_targets.get(name, ()):
             batches[gi].append((media_id, date_val, tot, wm, nwm))
-            touched[gi].add(media_id)
             if len(batches[gi]) >= _BATCH:
                 _flush(active[gi]["conn"], batches[gi])
     for gi, glam in enumerate(active):
         conn = glam["conn"]
         _flush(conn, batches[gi])
-        refresh_stats(conn, touched[gi])
+        refresh_stats(conn, date_val)
         _upsert_sum(conn, date_val)
         _set_views_loaded_for(conn, date_val)
