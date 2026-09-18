@@ -90,6 +90,13 @@ def test_load_images_collects_names_across_pages_before_strip():
     assert body.index("loadImagesIntoDB") < body.index("array_remove")
 
 
+def test_load_images_crawl_tail_returns_not_awaits():
+    body = _fn("loadImages")
+    assert "await loadImages()" not in body
+    assert body.count("return loadImages()") == 2
+    assert body.index("last_crawled_at") < body.rindex("return loadImages()")
+
+
 def test_build_image_query_orders_by_img_name():
     src = ETL_JS.read_text()
     start = src.index("var buildImageQuery")

@@ -228,7 +228,7 @@ async function loadImages() {
     "UPDATE categories SET last_crawled_at = NOW() WHERE page_title = $1",
     [title]
   );
-  await loadImages();
+  return loadImages();
 }
 
 var convertTimestamp = function (timestamp) {
@@ -298,7 +298,7 @@ async function loadUsages() {
   }
 
   var query = buildUsageQuery(RQ);
-  const rows = await wikiCaller.query(query);
+  let rows = await wikiCaller.query(query);
   for (var k = 0; k < rows.length; k++) {
     usages[usagindex] = new Object();
     usages[usagindex].gil_wiki = rows[k].gil_wiki;
@@ -309,7 +309,8 @@ async function loadUsages() {
       await flushUsages();
     }
   }
-  await loadUsages();
+  rows = null;
+  return loadUsages();
 }
 
 async function flushUsages() {

@@ -124,6 +124,13 @@ def test_load_usages_flushes_every_5000():
     assert "flushUsages" in body
 
 
+def test_load_usages_batch_tail_returns_not_awaits():
+    body = _fn("loadUsages")
+    assert "await loadUsages()" not in body
+    assert "return loadUsages()" in body
+    assert "updated_at" not in body
+
+
 def test_after_usages_flushes_remainder_then_finalize():
     body = _fn("afterUsages")
     assert body.index("flushUsages") < body.index("finalize")
