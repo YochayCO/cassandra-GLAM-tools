@@ -18,6 +18,8 @@ var countImages = 0;
 var catFreeTail = 0;
 var usages;
 var usagindex = 0;
+var usageSetDiffRan = false;
+var usageOurs;
 var glam;
 var categorySql = "";
 
@@ -38,6 +40,11 @@ async function finalize(failure) {
     );
   }
   await glam.connection.query(categorySql + "select * from doMaintenance();");
+  if (!usageSetDiffRan) {
+    await glam.connection.query(
+      "update usages set is_alive=false where last_seen<(current_date-5)"
+    );
+  }
   if (titles.length) {
     await glam.connection.query(
       "DELETE FROM categories WHERE page_title <> ALL($1::varchar[])",
@@ -164,6 +171,7 @@ async function loadImages() {
     usages = [];
     usagindex = 0;
     catHead = 0;
+    await prepareUsages();
     await loadUsages();
     return;
   }
@@ -304,6 +312,7 @@ async function loadUsages() {
     usages[usagindex].gil_wiki = rows[k].gil_wiki;
     usages[usagindex].gil_page_title = rows[k].gil_page_title.toString();
     usages[usagindex].gil_to = rows[k].gil_to.toString();
+    usages[usagindex].gil_page = rows[k].gil_page;
     usagindex++;
     if (usagindex >= USAGE_FLUSH) {
       await flushUsages();
@@ -318,14 +327,26 @@ async function flushUsages() {
   let storage_query = "";
   while (i < usagindex) {
     let use = usages[i];
-    storage_query +=
+    if (usageSetDiffRan && use.gil_page != null && use.gil_page !== "") {
+      const key = String(use.gil_to) + "\0" + String(use.gil_wiki) + "\0" + String(use.gil_page);
+      if (usageOurs.has(key)) {
+        usageOurs.delete(key);
+        i++;
+        continue;
+      }
+    }
+    let sql =
       "select * from addUsage('" +
       use.gil_wiki +
       "','" +
       use.gil_page_title.replace(/'/g, "''") +
       "','" +
       use.gil_to.replace(/'/g, "''") +
-      "');\r\n";
+      "'";
+    if (use.gil_page != null && use.gil_page !== "") {
+      sql += "," + Number(use.gil_page);
+    }
+    storage_query += sql + ");\r\n";
     i++;
   }
   if (storage_query) {
@@ -338,11 +359,50 @@ async function flushUsages() {
 
 async function afterUsages() {
   await flushUsages();
+  if (usageSetDiffRan) {
+    await closeVanishedUsages();
+  }
   await finalize();
 }
 
+async function prepareUsages() {
+  const stale = await glam.connection.query(
+    "SELECT 1 FROM usages WHERE is_alive = true AND gil_page IS NULL LIMIT 1"
+  );
+  usageSetDiffRan = stale.rows.length === 0;
+  usageOurs = new Set();
+  if (!usageSetDiffRan) return;
+  const live = await glam.connection.query(
+    "SELECT gil_to, gil_wiki, gil_page FROM usages WHERE is_alive = true AND gil_page IS NOT NULL"
+  );
+  for (const r of live.rows) {
+    usageOurs.add(String(r.gil_to) + "\0" + String(r.gil_wiki) + "\0" + String(r.gil_page));
+  }
+}
+
+async function closeVanishedUsages() {
+  if (usageOurs.size) {
+    const tos = [];
+    const wikis = [];
+    const pages = [];
+    for (const key of usageOurs) {
+      const parts = key.split("\0");
+      tos.push(parts[0]);
+      wikis.push(parts[1]);
+      pages.push(Number(parts[2]));
+    }
+    await glam.connection.query(
+      "UPDATE usages SET is_alive=false WHERE is_alive = true AND (gil_to, gil_wiki, gil_page) IN (SELECT * FROM unnest($1::varchar[], $2::varchar[], $3::int[]))",
+      [tos, wikis, pages]
+    );
+  }
+  await glam.connection.query(
+    "UPDATE usages SET last_seen=CURRENT_DATE WHERE is_alive = true AND gil_page IS NOT NULL"
+  );
+}
+
 var buildUsageQuery = function (RQ) {
-  return `SELECT gil_wiki, gil_page_title, gil_to
+  return `SELECT gil_wiki, gil_page, gil_page_title, gil_to
     FROM globalimagelinks
     JOIN image ON gil_to = img_name
     JOIN page ON img_name = page_title AND page_namespace = 6

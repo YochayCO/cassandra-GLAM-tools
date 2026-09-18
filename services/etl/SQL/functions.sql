@@ -41,16 +41,17 @@ end;
 $$language plpgsql;
 
 
-create or replace function AddUsage(_wiki varchar(20),_page varchar(255) ,_to varchar(255))
+DROP FUNCTION IF EXISTS AddUsage(varchar, varchar, varchar);
+create or replace function AddUsage(_wiki varchar(20),_page varchar(255) ,_to varchar(255), _gil_page int default null)
 returns void as $$
 declare
 appeared date;
 begin
 SELECT first_seen into appeared FROM usages WHERE gil_page_title = _page and gil_to=_to and gil_wiki=_wiki and is_alive=true;
 IF FOUND THEN
-update usages set last_seen=CURRENT_DATE where gil_page_title=_page and gil_to=_to and gil_wiki=_wiki and first_seen=appeared;
+update usages set last_seen=CURRENT_DATE, gil_page=COALESCE(_gil_page, gil_page) where gil_page_title=_page and gil_to=_to and gil_wiki=_wiki and first_seen=appeared;
 else
-insert into usages(gil_wiki,gil_page_title,gil_to,first_seen,last_seen,is_alive) values(_wiki,_page,_to,CURRENT_DATE,CURRENT_DATE,true);
+insert into usages(gil_wiki,gil_page_title,gil_to,first_seen,last_seen,is_alive,gil_page) values(_wiki,_page,_to,CURRENT_DATE,CURRENT_DATE,true,_gil_page);
 end if;
 end;
 $$language plpgsql;

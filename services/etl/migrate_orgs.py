@@ -5,6 +5,8 @@ from etl.glams_table import get_active_glams, get_glam_database_connection
 SQL_DIR = pathlib.Path(__file__).with_name("SQL")
 SQL = SQL_DIR.joinpath("incremental.sql").read_text()
 ADD_CATEGORY_SQL = SQL_DIR.joinpath("add_category.sql").read_text()
+FUNCTIONS_SQL = SQL_DIR.joinpath("functions.sql").read_text()
+MAINTENANCE_SQL = SQL_DIR.joinpath("maintenance.sql").read_text()
 
 
 def main():
@@ -17,6 +19,8 @@ def main():
                 if stmt:
                     cur.execute(stmt)
             cur.execute(ADD_CATEGORY_SQL)
+            cur.execute(FUNCTIONS_SQL)
+            cur.execute(MAINTENANCE_SQL)
             print("migrated", glam["name"])
         except Exception as e:
             print("failed", glam["name"], e, file=sys.stderr)
