@@ -17,17 +17,16 @@ var catFreeTail = 0;
 var usages;
 var usagindex = 0;
 var glam;
+var categorySql = "";
 
 async function finalize(failure) {
-  log("===========================================");
   log("Number of categories: " + catFreeTail);
   log("Number of images: " + countImages);
-
   if (failure === true) {
-    throw new Error('Process failed');
+    process.exit(65);
   }
-  log("Running doMaintenance() on glam database");
-  await glam.connection.query("select * from doMaintenance();");
+  // ponytail: skip whole-table alive flip; stale-alive / AddCategory array-append until Task 6 fingerprints
+  await glam.connection.query(categorySql + "select * from doMaintenance();");
 }
 
 function searchCatQueue(page) {
@@ -58,6 +57,10 @@ async function wikiOpen(starting_cat) {
     starting_cat.replace(/\'/g, "''") +
     "'";
   const rows = await wikiCaller.query(temp_query);
+  if (!rows || rows.length === 0) {
+    log("Category missing on replica: " + starting_cat);
+    process.exit(65);
+  }
   catQueue[0].cat_subcats = rows[0].cat_subcats;
   catQueue[0].cat_files = rows[0].cat_files;
   await getLevelChilds();
@@ -109,8 +112,7 @@ async function getLevelChilds() {
 }
 
 async function afterCategories() {
-  let storage_query =
-    "delete from categories; update images set is_alive=false; ";
+  let storage_query = "";
   let i = 0;
   while (i < catFreeTail) {
     let temp = "";
@@ -131,9 +133,7 @@ async function afterCategories() {
     i++;
   }
 
-  log("Updating Postgres data...");
-  await glam.connection.query(storage_query);
-  log("Completed!");
+  categorySql = storage_query;
   log("===========================================");
   log("Now loading images...");
   catHead = 0;
