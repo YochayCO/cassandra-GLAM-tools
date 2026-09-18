@@ -32,7 +32,6 @@
     },
     "mediacountStartDate": "2020-09-01",
     "limits": {
-        "categories": 1000,
         "images": 500000
     }
 }

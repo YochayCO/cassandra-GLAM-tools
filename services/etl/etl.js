@@ -6,6 +6,8 @@ const log = (...args) =>
 
 const CONST_USE_PER_QUERY = 10;
 const CONST_CAT_PER_QUERY = 40;
+var IMAGE_PAGE = 10000;
+var USAGE_FLUSH = 5000;
 
 var wikiCaller;
 var images;
@@ -91,11 +93,6 @@ async function getLevelChilds() {
     return;
   }
 
-  if (catFreeTail >= config.limits["categories"]) {
-    log(`Number of categories(${catFreeTail}) exceeded limit in config`);
-    await finalize(true);
-  }
-
   log("At " + catHead + " of " + catFreeTail);
   var RQ = "";
   var originalHead = catHead;
@@ -173,7 +170,6 @@ async function loadImages() {
 
   if (countImages >= config.limits["images"]) {
     log(`The number of images (${countImages}) exceeded limit in config`);
-    await finalize(true);
   }
 
   // TODO can be optimized looking for files number and merging little cats calls
@@ -198,27 +194,31 @@ async function loadImages() {
   var RQ = "'" + title.replace(/'/g, "''") + "'";
   catHead++;
 
-  imgIndex = 0;
-  images = [];
-
-  var query = buildImageQuery(RQ);
-  const rows = await wikiCaller.query(query);
-
-  for (var k = 0; k < rows.length; k++) {
-    images[imgIndex] = new Object();
-    images[imgIndex].img_name = rows[k].img_name.toString();
-    images[imgIndex].img_user_text = rows[k].img_user_text.toString();
-    images[imgIndex].img_timestamp = convertTimestamp(rows[k].img_timestamp);
-    images[imgIndex].img_size = rows[k].img_size;
-    images[imgIndex].cl_to = rows[k].cl_to.toString();
-    imgIndex++;
-    countImages++;
-  }
   const names = [];
-  for (let i = 0; i < imgIndex; i++) {
-    names.push(images[i].img_name);
+  let offset = 0;
+  for (;;) {
+    imgIndex = 0;
+    images = [];
+    // ponytail: OFFSET walk; keyset on img_name if a category's deep pages dominate runtime
+    var query =
+      buildImageQuery(RQ) + " LIMIT " + IMAGE_PAGE + " OFFSET " + offset;
+    const rows = await wikiCaller.query(query);
+
+    for (var k = 0; k < rows.length; k++) {
+      images[imgIndex] = new Object();
+      images[imgIndex].img_name = rows[k].img_name.toString();
+      images[imgIndex].img_user_text = rows[k].img_user_text.toString();
+      images[imgIndex].img_timestamp = convertTimestamp(rows[k].img_timestamp);
+      images[imgIndex].img_size = rows[k].img_size;
+      images[imgIndex].cl_to = rows[k].cl_to.toString();
+      names.push(images[imgIndex].img_name);
+      imgIndex++;
+      countImages++;
+    }
+    await loadImagesIntoDB();
+    if (rows.length < IMAGE_PAGE) break;
+    offset += IMAGE_PAGE;
   }
-  await loadImagesIntoDB();
   imgIndex = 0;
   await glam.connection.query(
     "UPDATE images SET cl_to = array_remove(cl_to, $1) WHERE $1 = ANY(cl_to) AND NOT (img_name = ANY($2::varchar[]))",
@@ -305,17 +305,19 @@ async function loadUsages() {
     usages[usagindex].gil_page_title = rows[k].gil_page_title.toString();
     usages[usagindex].gil_to = rows[k].gil_to.toString();
     usagindex++;
+    if (usagindex >= USAGE_FLUSH) {
+      await flushUsages();
+    }
   }
   await loadUsages();
 }
 
-async function afterUsages() {
+async function flushUsages() {
   let i = 0;
-  storage_query = "";
+  let storage_query = "";
   while (i < usagindex) {
-    let temp = "";
     let use = usages[i];
-    temp +=
+    storage_query +=
       "select * from addUsage('" +
       use.gil_wiki +
       "','" +
@@ -323,12 +325,18 @@ async function afterUsages() {
       "','" +
       use.gil_to.replace(/'/g, "''") +
       "');\r\n";
-    storage_query += temp;
     i++;
   }
+  if (storage_query) {
+    log("Updating Postgres data...");
+    await glam.connection.query(storage_query);
+  }
+  usages = [];
+  usagindex = 0;
+}
 
-  log("Updating Postgres data...");
-  await glam.connection.query(storage_query);
+async function afterUsages() {
+  await flushUsages();
   await finalize();
 }
 
@@ -352,7 +360,8 @@ var buildImageQuery = function (RQ) {
     JOIN actor ON img_actor = actor_id
     WHERE lt_namespace = 14
     AND lt_title IN (${RQ})
-    AND page_namespace = 6`;
+    AND page_namespace = 6
+    ORDER BY img_name`;
 };
 var buildCategoryQuery = function (RQ) {
   return `SELECT page_title, lt_title AS cl_to, cat_subcats, cat_files

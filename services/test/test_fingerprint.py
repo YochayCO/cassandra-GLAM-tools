@@ -68,6 +68,38 @@ def test_load_images_stamps_last_crawled_at():
     assert body.index("buildImageQuery") < body.index("last_crawled_at")
 
 
+def test_load_images_pages_after_fingerprint():
+    src = ETL_JS.read_text()
+    body = _fn("loadImages")
+    page = '" LIMIT " + IMAGE_PAGE + " OFFSET "'
+    assert "var IMAGE_PAGE = 10000" in src
+    assert page in body
+    assert body.index("keep in sync") < body.index("buildImageQuery")
+    assert body.index("buildImageQuery") < body.index(page)
+
+
+def test_load_images_collects_names_across_pages_before_strip():
+    body = _fn("loadImages")
+    assert "for (;;)" in body
+    assert "rows.length < IMAGE_PAGE" in body
+    assert "offset += IMAGE_PAGE" in body
+    assert body.index("const names") < body.index("for (;;)")
+    assert body.index("names.push") < body.index("rows.length < IMAGE_PAGE")
+    assert body.index("offset += IMAGE_PAGE") < body.index("array_remove")
+    assert body.index("rows.length < IMAGE_PAGE") < body.index("array_remove")
+    assert body.index("loadImagesIntoDB") < body.index("array_remove")
+
+
+def test_build_image_query_orders_by_img_name():
+    src = ETL_JS.read_text()
+    start = src.index("var buildImageQuery")
+    end = src.index("var buildCategoryQuery")
+    body = src[start:end]
+    assert "ORDER BY img_name" in body
+    assert "LIMIT" not in body
+    assert "OFFSET" not in body
+
+
 def test_finalize_clears_parent_arrays_before_addcategory():
     body = _fn("finalize")
     clear = "UPDATE categories SET cl_to='{}', cat_level='{}' WHERE page_title = ANY($1)"

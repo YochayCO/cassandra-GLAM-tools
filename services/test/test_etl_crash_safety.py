@@ -1,3 +1,4 @@
+import json
 import re
 import subprocess
 import sys
@@ -98,3 +99,48 @@ def test_process_glam_marks_failed_on_exit_65(mock_etl, mock_failed):
     glam = {"name": "NARA", "lastrun": None}
     process_glam(glam)
     mock_failed.assert_called_once_with(glam)
+
+
+def test_get_level_childs_does_not_exit_on_category_limit():
+    body = _fn("getLevelChilds")
+    assert 'config.limits["categories"]' not in body
+    assert "finalize(true)" not in body
+    assert "catFreeTail" in body
+
+
+def test_load_images_image_limit_is_warning_not_exit():
+    body = _fn("loadImages")
+    assert 'config.limits["images"]' in body
+    assert "exceeded limit in config" in body
+    assert "finalize(true)" not in body
+    assert "process.exit" not in body
+
+
+def test_load_usages_flushes_every_5000():
+    src = ETL_JS.read_text()
+    body = _fn("loadUsages")
+    assert "var USAGE_FLUSH = 5000" in src
+    assert "usagindex >= USAGE_FLUSH" in body
+    assert "flushUsages" in body
+
+
+def test_after_usages_flushes_remainder_then_finalize():
+    body = _fn("afterUsages")
+    assert body.index("flushUsages") < body.index("finalize")
+
+
+def test_flush_usages_resets_buffer_without_exiting():
+    body = _fn("flushUsages")
+    assert "addUsage" in body
+    assert "usages = []" in body
+    assert "usagindex = 0" in body
+    assert "finalize" not in body
+    assert "process.exit" not in body
+
+
+def test_sample_config_drops_category_hard_limit():
+    cfg = json.loads(
+        (Path(__file__).resolve().parents[1] / "config" / "config.sample.json").read_text()
+    )
+    assert "categories" not in cfg["limits"]
+    assert "images" in cfg["limits"]
