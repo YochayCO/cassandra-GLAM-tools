@@ -44,7 +44,7 @@ config.loadGlams().then((glams) => {
         process.exit(1);
     }
     
-    var files = ["db_init.sql", "dailyInsert.sql", "functions.sql", "maintenance.sql"];
+    var files = ["db_init.sql", "dailyInsert.sql", "functions.sql", "maintenance.sql", "incremental.sql"];
 
     console.log("Setup started");
     processQuery(glam.connection, files, 0);

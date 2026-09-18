@@ -9,7 +9,7 @@ update categories set cl_to=cl_to||_to,cat_level=cat_level||_level where page_ti
 else
 t[0]:=_to;
 l[0]:=_level;
-insert into categories values(title,subcats,files,t,l);
+insert into categories(page_title, cat_subcats, cat_files, cl_to, cat_level) values(title,subcats,files,t,l);
 end if;
 EXCEPTION
     WHEN others THEN
