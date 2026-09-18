@@ -32,8 +32,9 @@ def test_wiki_open_exits_65_when_replica_category_missing():
 def test_finalize_true_exits_65_without_wipes():
     body = _fn("finalize")
     assert "process.exit(65)" in body
-    assert "delete from categories" not in body.lower()
-    assert "is_alive=false" not in body.replace(" ", "").lower()
+    fail_prefix = body[: body.index("process.exit(65)")]
+    assert "delete from categories" not in fail_prefix.lower()
+    assert "is_alive=false" not in fail_prefix.replace(" ", "").lower()
     assert "doMaintenance" in body
 
 

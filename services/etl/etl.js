@@ -25,8 +25,20 @@ async function finalize(failure) {
   if (failure === true) {
     process.exit(65);
   }
-  // ponytail: skip whole-table alive flip; stale-alive / AddCategory array-append until Task 6 fingerprints
+  const titles = [];
+  for (let i = 0; i < catFreeTail; i++) {
+    titles.push(catQueue[i].page_title);
+  }
   await glam.connection.query(categorySql + "select * from doMaintenance();");
+  if (titles.length) {
+    await glam.connection.query(
+      "DELETE FROM categories WHERE page_title <> ALL($1::varchar[])",
+      [titles]
+    );
+  }
+  await glam.connection.query(
+    "UPDATE images SET is_alive = false WHERE NOT (cl_to && (SELECT array_agg(page_title) FROM categories))"
+  );
 }
 
 function searchCatQueue(page) {
@@ -160,7 +172,22 @@ async function loadImages() {
 
   // TODO can be optimized looking for files number and merging little cats calls
   log("At " + catHead + " of " + catFreeTail);
-  var RQ = "'" + catQueue[catHead].page_title.replace(/'/g, "''") + "'";
+  // keep in sync with etl/fingerprint.py
+  const prev = await glam.connection.query(
+    "SELECT cat_files, cat_subcats FROM categories WHERE page_title = $1",
+    [catQueue[catHead].page_title]
+  );
+  if (
+    prev.rows[0] &&
+    prev.rows[0].cat_files === catQueue[catHead].cat_files &&
+    prev.rows[0].cat_subcats === catQueue[catHead].cat_subcats
+  ) {
+    catHead++;
+    return loadImages();
+  }
+
+  var title = catQueue[catHead].page_title;
+  var RQ = "'" + title.replace(/'/g, "''") + "'";
   catHead++;
 
   imgIndex = 0;
@@ -179,7 +206,20 @@ async function loadImages() {
     imgIndex++;
     countImages++;
   }
+  const names = [];
+  for (let i = 0; i < imgIndex; i++) {
+    names.push(images[i].img_name);
+  }
   await loadImagesIntoDB();
+  imgIndex = 0;
+  await glam.connection.query(
+    "UPDATE images SET cl_to = array_remove(cl_to, $1) WHERE $1 = ANY(cl_to) AND NOT (img_name = ANY($2::varchar[]))",
+    [title, names]
+  );
+  await glam.connection.query(
+    "UPDATE categories SET last_crawled_at = NOW() WHERE page_title = $1",
+    [title]
+  );
   await loadImages();
 }
 

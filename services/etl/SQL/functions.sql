@@ -5,11 +5,13 @@ t varchar(255)[];
 l int[];
 begin
 IF EXISTS (SELECT 1 FROM categories WHERE page_title = title) THEN
-update categories set cl_to=cl_to||_to,cat_level=cat_level||_level where page_title=title;
+t[0]:=_to;
+l[0]:=_level;
+update categories set cat_subcats=subcats, cat_files=files, cl_to=t, cat_level=l where page_title=title;
 else
 t[0]:=_to;
 l[0]:=_level;
-insert into categories(page_title, cat_subcats, cat_files, cl_to, cat_level) values(title,subcats,files,t,l);
+insert into categories(page_title, cat_subcats, cat_files, cl_to, cat_level, last_crawled_at) values(title,subcats,files,t,l,NOW());
 end if;
 EXCEPTION
     WHEN others THEN
@@ -27,7 +29,7 @@ SELECT is_alive into opened FROM images WHERE img_name = _name;
 t[0]:=_to;
 IF FOUND THEN
 if opened then
-update images set cl_to=cl_to||_to where img_name=_name;
+update images set cl_to=array_remove(cl_to,_to)||_to where img_name=_name;
 else
 update images set cl_to=t, is_alive=true where img_name=_name;
 end if;
