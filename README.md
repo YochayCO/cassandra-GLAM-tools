@@ -71,6 +71,20 @@ export ENV="production"
 
 **Add a production config file inside the config folder: `./config/config.production.json` With the same structure as in `./config/config.sample.json`**
 
+### Nightly ops
+
+Migrate org DBs (run once after deploying schema changes):
+
+```bash
+ENV=production python -m etl.migrate_orgs
+```
+
+Category fixes (set in the GLAM record, not the topic tree):
+
+- Carnavalize: `Wiki Movimento Brasil's initiative with Carnavalize` (ASCII apostrophe `'`, not a curly quote)
+- LSoEaPS: `Images from the London School of Economics`
+
+Large GLAMs: NARA and DPLoA first snapshot after pagination can run for hours; other GLAMs already run in parallel. Nightly no longer runs `REFRESH MATERIALIZED VIEW`.
 
 ### Run initdaily.sh - script that run dail.py. <br /> Run it with the following commands to do it with a daily cron job
 The daily script runs every day at 4:00 AM
