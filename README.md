@@ -73,11 +73,13 @@ export ENV="production"
 
 ### Nightly ops
 
-Migrate org DBs (run once after deploying schema changes):
+Migrate org DBs (run once after deploying schema changes). The process must exit 0 — a `failed` line means that org still lacks 4-arg `AddUsage`. Do not start cron until every active DB prints `migrated`.
 
 ```bash
 ENV=production python -m etl.migrate_orgs
 ```
+
+First night after migrate recrawls almost every category: old `AddCategory` did not refresh `cat_files` / `cat_subcats`, so count fingerprints miss. Nightly can run 8 Node processes with `--max-old-space-size=5120` (~40 GiB of heaps plus the dump name map). Size the ETL box for that; OOM on night one is likely RAM, not a code regression.
 
 Category fixes (set in the GLAM record, not the topic tree):
 

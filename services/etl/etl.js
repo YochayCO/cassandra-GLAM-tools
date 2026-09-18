@@ -85,7 +85,7 @@ async function wikiOpen(starting_cat) {
     "'";
   const rows = await wikiCaller.query(temp_query);
   if (!rows || rows.length === 0) {
-    log("Category missing on replica: " + starting_cat);
+    console.error("Category missing on replica: " + starting_cat);
     process.exit(65);
   }
   catQueue[0].cat_subcats = rows[0].cat_subcats;

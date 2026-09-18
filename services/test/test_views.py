@@ -144,6 +144,50 @@ def test_load_views_for_date_skip_loaded_false(tmp_path):
     assert already.bound == [(7, day, 9, 4, 5)]
 
 
+def _watermarked(conn, day):
+    return any(
+        "greatest(views_loaded_for" in _norm(s) and p == (day,)
+        for s, p in conn.executed
+    )
+
+
+def _sum_upserted(conn):
+    return any("insert into visualizations_sum_t" in _norm(s) for s, _ in conn.executed)
+
+
+def test_empty_dump_does_not_watermark(tmp_path):
+    day = date(2026, 9, 17)
+    conn = FakeConn(loaded_for=None, images=[("Foo_bar.jpg", 7)])
+    dump = tmp_path / "empty.tsv"
+    dump.write_text("")
+    load_views_for_date([{"conn": conn}], str(dump), day)
+    assert conn.bound == []
+    assert not _watermarked(conn, day)
+    assert not _sum_upserted(conn)
+
+
+def test_unparseable_dump_does_not_watermark(tmp_path):
+    day = date(2026, 9, 17)
+    conn = FakeConn(loaded_for=None, images=[("Foo_bar.jpg", 7)])
+    dump = tmp_path / "bad.tsv"
+    dump.write_bytes(b"\xff\xfe not-a-dump\nshort\tline\n")
+    load_views_for_date([{"conn": conn}], str(dump), day)
+    assert conn.bound == []
+    assert not _watermarked(conn, day)
+    assert not _sum_upserted(conn)
+
+
+def test_parsed_dump_with_no_org_hits_still_watermarks(tmp_path):
+    day = date(2026, 9, 17)
+    conn = FakeConn(loaded_for=None, images=[("Only_ours.jpg", 7)])
+    dump = tmp_path / "day.tsv"
+    dump.write_text(_tsv_line("Someone_else.jpg", 9, 4, 5))
+    load_views_for_date([{"conn": conn}], str(dump), day)
+    assert conn.bound == []
+    assert _watermarked(conn, day)
+    assert _sum_upserted(conn)
+
+
 def test_recompute_all_stats_full_history():
     conn = FakeConn(loaded_for=None, images=[])
     recompute_all_stats(conn)

@@ -1,3 +1,4 @@
+import io
 import json
 import re
 import subprocess
@@ -28,6 +29,8 @@ def test_wiki_open_exits_65_when_replica_category_missing():
     assert "Category missing on replica" in body
     assert "process.exit(65)" in body
     assert "rows.length === 0" in body
+    fail_line = [ln for ln in body.splitlines() if "Category missing" in ln][0]
+    assert "console.error" in fail_line
 
 
 def test_finalize_true_exits_65_without_wipes():
@@ -60,35 +63,32 @@ def test_finalize_runs_buffered_categories_with_maintenance():
 
 
 @patch("etl.etl_glam.logging")
-@patch("etl.etl_glam.subprocess.run")
-def test_etl_logs_stderr_and_raises_on_nonzero(mock_run, mock_log):
-    mock_run.return_value = subprocess.CompletedProcess(
-        args=["node", "etl.js", "NARA"],
-        returncode=65,
-        stdout="",
-        stderr="category missing",
-    )
+@patch("etl.etl_glam.subprocess.Popen")
+def test_etl_logs_stderr_and_raises_on_nonzero(mock_popen, mock_log):
+    proc = mock_popen.return_value
+    proc.stdout = io.StringIO("Category missing on replica: Foo\n")
+    proc.args = ["node", "etl.js", "NARA"]
+    proc.wait.return_value = 65
     with pytest.raises(subprocess.CalledProcessError) as ei:
         _etl("NARA")
     assert ei.value.returncode == 65
-    assert ei.value.stderr == "category missing"
-    assert mock_run.call_args.kwargs["capture_output"] is True
-    assert mock_run.call_args.kwargs["text"] is True
-    mock_log.error.assert_any_call("etl.js stderr: %s", "category missing")
+    kw = mock_popen.call_args.kwargs
+    assert kw["stdout"] == subprocess.PIPE
+    assert kw["stderr"] == subprocess.STDOUT
+    assert kw.get("capture_output") is not True
+    mock_log.info.assert_any_call("%s", "Category missing on replica: Foo")
     mock_log.error.assert_any_call("etl.js returncode %s", 65)
 
 
 @patch("etl.etl_glam.logging")
-@patch("etl.etl_glam.subprocess.run")
-def test_etl_logs_stdout_on_success(mock_run, mock_log):
-    mock_run.return_value = subprocess.CompletedProcess(
-        args=["node", "etl.js", "NARA"],
-        returncode=0,
-        stdout="done",
-        stderr="",
-    )
+@patch("etl.etl_glam.subprocess.Popen")
+def test_etl_logs_stdout_on_success(mock_popen, mock_log):
+    proc = mock_popen.return_value
+    proc.stdout = io.StringIO("done\n")
+    proc.args = ["node", "etl.js", "NARA"]
+    proc.wait.return_value = 0
     _etl("NARA")
-    mock_log.info.assert_any_call("done")
+    mock_log.info.assert_any_call("%s", "done")
     mock_log.error.assert_not_called()
 
 

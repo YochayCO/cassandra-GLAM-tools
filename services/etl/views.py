@@ -157,15 +157,19 @@ def load_views_for_date(glams, filepath, date_val, skip_loaded=True):
     if not active:
         return
     batches = [[] for _ in active]
+    parsed_any = False
     for line in _iter_dump(filepath):
         parsed = parse_dump_line(line)
         if parsed is None:
             continue
+        parsed_any = True
         name, tot, wm, nwm = parsed
         for gi, media_id in name_to_targets.get(name, ()):
             batches[gi].append((media_id, date_val, tot, wm, nwm))
             if len(batches[gi]) >= _BATCH:
                 _flush(active[gi]["conn"], batches[gi])
+    if not parsed_any:
+        return
     for gi, glam in enumerate(active):
         conn = glam["conn"]
         _flush(conn, batches[gi])
