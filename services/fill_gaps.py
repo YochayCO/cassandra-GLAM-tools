@@ -1,13 +1,13 @@
 from concurrent.futures import ProcessPoolExecutor, wait
 import multiprocessing
 import sys
-from etl.mediacounts_dump import dailyinsert_from_file
+from etl.views import load_views_for_date
 import logging
 import signal
 from typing import List
 import argparse
 from datetime import date, datetime, timedelta
-from etl.glams_table import close_glams_connections, get_active_glams, load_glams_images, open_glams_connections, refresh_glams_visualizations
+from etl.glams_table import close_glams_connections, get_active_glams, load_glams_images, open_glams_connections
 from etl.download_mediacounts import get_nfs_file_path 
 
 def _daily_insert(glams, filepath, date_val, pos, should_exit):
@@ -15,7 +15,7 @@ def _daily_insert(glams, filepath, date_val, pos, should_exit):
     # and therefore are required to be opened again
     open_glams_connections(glams)
     try:
-        dailyinsert_from_file(glams, filepath, date_val, pos, should_exit)
+        load_views_for_date(glams, filepath, date_val)
     except Exception as e:
         logging.exception(e)
     close_glams_connections(glams)
@@ -58,9 +58,6 @@ def _main(start_date: date, end_date: date, glams_names: List[str], num_of_worke
     load_glams_images(glams)
     close_glams_connections(glams)
     fill_gaps(start_date, end_date, glams, num_of_workers)
-    open_glams_connections(glams)
-    refresh_glams_visualizations(glams)
-    close_glams_connections(glams)
 
 
 if __name__ == '__main__':
