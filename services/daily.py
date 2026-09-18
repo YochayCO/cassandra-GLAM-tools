@@ -1,3 +1,4 @@
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from etl.views import load_views_for_date
 import logging
 import os
@@ -9,9 +10,18 @@ from etl.download_mediacounts import get_nfs_file_path
 
 
 def process_glams(glams):
-    for glam in glams:
-        logging.info(f" {datetime.now()} Processing glam: {glam['name']}")
-        process_glam(glam)
+    n = min(8, os.cpu_count() or 1)
+    with ProcessPoolExecutor(max_workers=n) as ex:
+        futs = {
+            ex.submit(process_glam, {k: v for k, v in g.items() if k != "conn"}): g["name"]
+            for g in glams
+        }
+        for fut in as_completed(futs):
+            name = futs[fut]
+            try:
+                fut.result()
+            except Exception:
+                logging.exception("snapshot failed %s", name)
 
 
 def main(date_val: date):
