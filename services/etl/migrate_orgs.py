@@ -1,49 +1,34 @@
 import pathlib
-import re
+import subprocess
 import sys
 from etl.glams_table import get_active_glams, get_glam_database_connection
 
-SQL_DIR = pathlib.Path(__file__).with_name("SQL")
-SQL = SQL_DIR.joinpath("incremental.sql").read_text()
-ADD_CATEGORY_SQL = SQL_DIR.joinpath("add_category.sql").read_text()
-FUNCTIONS_SQL = SQL_DIR.joinpath("functions.sql").read_text()
-MAINTENANCE_SQL = SQL_DIR.joinpath("maintenance.sql").read_text()
-
-_FUNC_END = re.compile(r"\$\$\s*language\s+plpgsql\s*;", re.I)
-_FUNC_START = re.compile(r"create(?:\s+or\s+replace)?\s+function\b", re.I)
+SETUP_JS = pathlib.Path(__file__).resolve().with_name("setup.js")
+APPLY_FILES = ("incremental.sql", "functions.sql", "maintenance.sql")
 
 
-def sql_statements(sql):
-    stmts = []
-    rest = sql
-    while True:
-        m = _FUNC_END.search(rest)
-        if not m:
-            for s in rest.split(";"):
-                s = s.strip()
-                if s:
-                    stmts.append(s)
-            return stmts
-        chunk = rest[: m.end()]
-        rest = rest[m.end() :]
-        starts = list(_FUNC_START.finditer(chunk))
-        if not starts:
-            for s in chunk.split(";"):
-                s = s.strip()
-                if s:
-                    stmts.append(s)
-            continue
-        start = starts[-1].start()
-        for s in chunk[:start].split(";"):
-            s = s.strip()
-            if s:
-                stmts.append(s)
-        stmts.append(chunk[start:].strip())
+def drop_view_or_matview(cur, name):
+    cur.execute(
+        "SELECT c.relkind FROM pg_class c "
+        "JOIN pg_namespace n ON n.oid = c.relnamespace "
+        "WHERE n.nspname = 'public' AND c.relname = %s",
+        (name,),
+    )
+    row = cur.fetchone()
+    if not row:
+        return
+    kind = row[0]
+    if kind == "m":
+        cur.execute(f"DROP MATERIALIZED VIEW {name}")
+    elif kind == "v":
+        cur.execute(f"DROP VIEW {name}")
 
 
-def apply_sql(cur, sql):
-    for stmt in sql_statements(sql):
-        cur.execute(stmt)
+def apply_sql_files(glam_name):
+    subprocess.run(
+        ["node", str(SETUP_JS), glam_name, *APPLY_FILES],
+        check=True,
+    )
 
 
 def main():
@@ -52,8 +37,9 @@ def main():
         conn = get_glam_database_connection(glam["database"])
         try:
             cur = conn.cursor()
-            for blob in (SQL, ADD_CATEGORY_SQL, FUNCTIONS_SQL, MAINTENANCE_SQL):
-                apply_sql(cur, blob)
+            drop_view_or_matview(cur, "visualizations_stats")
+            drop_view_or_matview(cur, "visualizations_sum")
+            apply_sql_files(glam["name"])
             print("migrated", glam["name"])
         except Exception as e:
             failed = True

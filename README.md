@@ -73,7 +73,7 @@ export ENV="production"
 
 ### Nightly ops
 
-Migrate org DBs (run once after deploying schema changes). The process must exit 0 — a `failed` line means that org still lacks 4-arg `AddUsage`. Do not start cron until every active DB prints `migrated`.
+Migrate org DBs (run once after deploying schema changes). Applies `incremental.sql`, `functions.sql`, and `maintenance.sql` as whole files. The process must exit 0 — a `failed` line means that org did not finish; re-run migrate. Do not start cron until every active DB prints `migrated`.
 
 ```bash
 ENV=production python -m etl.migrate_orgs
