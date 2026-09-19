@@ -11,6 +11,8 @@ sys.modules.setdefault("etl.glams_table", MagicMock())
 
 from etl.etl_glam import _etl, process_glam  # noqa: E402
 
+ETL_JS = Path(__file__).resolve().parents[1] / "etl" / "etl.js"
+
 
 @patch("etl.etl_glam.logging")
 @patch("etl.etl_glam.subprocess.Popen")
@@ -57,3 +59,14 @@ def test_sample_config_drops_category_hard_limit():
     )
     assert "categories" not in cfg["limits"]
     assert "images" in cfg["limits"]
+
+
+def test_etl_js_finalize_contract():
+    src = ETL_JS.read_text()
+    compact = src.replace(" ", "")
+    assert "BEGIN" in src
+    assert "ON CONFLICT" in src
+    assert "cl_to='{}'" not in compact
+    assert "usageSetDiffRan" not in src
+    close = "UPDATE usages SET is_alive=false WHERE is_alive = true AND gil_page IS NULL"
+    assert src.index(close) < src.index("await finalize()")

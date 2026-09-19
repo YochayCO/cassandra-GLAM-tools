@@ -1,21 +1,4 @@
-create or replace function AddCategory(title varchar(255),subcats int ,files int,_to varchar(255),_level int)
-returns void as $$
-declare
-t varchar(255)[];
-l int[];
-begin
-IF EXISTS (SELECT 1 FROM categories WHERE page_title = title) THEN
-update categories set cat_subcats=subcats, cat_files=files, cl_to=cl_to||_to, cat_level=cat_level||_level where page_title=title;
-else
-t[0]:=_to;
-l[0]:=_level;
-insert into categories(page_title, cat_subcats, cat_files, cl_to, cat_level, last_crawled_at) values(title,subcats,files,t,l,NOW());
-end if;
-EXCEPTION
-    WHEN others THEN
-        RAISE NOTICE 'Error on %',title;
-end;
-$$language plpgsql;
+DROP FUNCTION IF EXISTS AddCategory(varchar, int, int, varchar, int);
 
 create or replace function AddImage(_name varchar(255),_user varchar(255) ,_timestamp timestamp without time zone,size bigint,_to varchar(255))
 returns void as $$

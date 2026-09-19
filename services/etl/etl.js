@@ -1,5 +1,6 @@
 const config = require("../config/config.js");
 const mariadb = require("mariadb");
+const { groupCatParents } = require("./etl_logic.js");
 
 const log = (...args) =>
   console.log(new Date().toLocaleString() + ":", ...args);
@@ -18,42 +19,46 @@ var countImages = 0;
 var catFreeTail = 0;
 var usages;
 var usagindex = 0;
-var usageSetDiffRan = false;
 var usageOurs;
 var glam;
-var categorySql = "";
 
-async function finalize(failure) {
+async function finalize() {
   log("Number of categories: " + catFreeTail);
   log("Number of images: " + countImages);
-  if (failure === true) {
-    process.exit(65);
-  }
-  const titles = [];
-  for (let i = 0; i < catFreeTail; i++) {
-    titles.push(catQueue[i].page_title);
-  }
-  if (titles.length) {
-    await glam.connection.query(
-      "UPDATE categories SET cl_to='{}', cat_level='{}' WHERE page_title = ANY($1)",
-      [titles]
+  const rows = groupCatParents(catQueue, catFreeTail);
+  const titles = rows.map((r) => r.page_title);
+  const client = await glam.connection.connect();
+  try {
+    await client.query("BEGIN");
+    for (const r of rows) {
+      await client.query(
+        "INSERT INTO categories (page_title, cat_subcats, cat_files, cl_to, cat_level) " +
+          "VALUES ($1, $2, $3, $4, $5) " +
+          "ON CONFLICT (page_title) DO UPDATE SET " +
+          "cat_subcats = EXCLUDED.cat_subcats, cat_files = EXCLUDED.cat_files, " +
+          "cl_to = EXCLUDED.cl_to, cat_level = EXCLUDED.cat_level",
+        [r.page_title, r.cat_subcats, r.cat_files, r.cl_to, r.cat_level]
+      );
+    }
+    if (titles.length) {
+      await client.query(
+        "DELETE FROM categories WHERE page_title <> ALL($1::varchar[])",
+        [titles]
+      );
+    }
+    await client.query(
+      "UPDATE images SET is_alive = false WHERE NOT (cl_to && (SELECT array_agg(page_title) FROM categories))"
     );
+    await client.query("select * from doMaintenance();");
+    await client.query("COMMIT");
+  } catch (e) {
+    try {
+      await client.query("ROLLBACK");
+    } catch (_) {}
+    throw e;
+  } finally {
+    client.release();
   }
-  await glam.connection.query(categorySql + "select * from doMaintenance();");
-  if (!usageSetDiffRan) {
-    await glam.connection.query(
-      "update usages set is_alive=false where last_seen<(current_date-5)"
-    );
-  }
-  if (titles.length) {
-    await glam.connection.query(
-      "DELETE FROM categories WHERE page_title <> ALL($1::varchar[])",
-      [titles]
-    );
-  }
-  await glam.connection.query(
-    "UPDATE images SET is_alive = false WHERE NOT (cl_to && (SELECT array_agg(page_title) FROM categories))"
-  );
 }
 
 function searchCatQueue(page) {
@@ -134,28 +139,6 @@ async function getLevelChilds() {
 }
 
 async function afterCategories() {
-  let storage_query = "";
-  let i = 0;
-  while (i < catFreeTail) {
-    let temp = "";
-    let Cat = catQueue[i];
-    temp +=
-      "select * from addCategory('" +
-      Cat.page_title.replace(/'/g, "''") +
-      "'," +
-      Cat.cat_subcats +
-      "," +
-      Cat.cat_files +
-      ",'" +
-      Cat.father.replace(/'/g, "''") +
-      "'," +
-      Cat.level +
-      ");\r\n";
-    storage_query += temp;
-    i++;
-  }
-
-  categorySql = storage_query;
   log("===========================================");
   log("Now loading images...");
   catHead = 0;
@@ -182,7 +165,6 @@ async function loadImages() {
 
   // TODO can be optimized looking for files number and merging little cats calls
   log("At " + catHead + " of " + catFreeTail);
-  // keep in sync with etl/fingerprint.py
   const prev = await glam.connection.query(
     "SELECT cat_files, cat_subcats FROM categories WHERE page_title = $1",
     [catQueue[catHead].page_title]
@@ -327,8 +309,13 @@ async function flushUsages() {
   let storage_query = "";
   while (i < usagindex) {
     let use = usages[i];
-    if (usageSetDiffRan && use.gil_page != null && use.gil_page !== "") {
-      const key = String(use.gil_to) + "\0" + String(use.gil_wiki) + "\0" + String(use.gil_page);
+    if (use.gil_page != null && use.gil_page !== "") {
+      const key =
+        String(use.gil_to) +
+        "\0" +
+        String(use.gil_wiki) +
+        "\0" +
+        String(use.gil_page);
       if (usageOurs.has(key)) {
         usageOurs.delete(key);
         i++;
@@ -359,24 +346,22 @@ async function flushUsages() {
 
 async function afterUsages() {
   await flushUsages();
-  if (usageSetDiffRan) {
-    await closeVanishedUsages();
-  }
+  await closeVanishedUsages();
+  await glam.connection.query(
+    "UPDATE usages SET is_alive=false WHERE is_alive = true AND gil_page IS NULL"
+  );
   await finalize();
 }
 
 async function prepareUsages() {
-  const stale = await glam.connection.query(
-    "SELECT 1 FROM usages WHERE is_alive = true AND gil_page IS NULL LIMIT 1"
-  );
-  usageSetDiffRan = stale.rows.length === 0;
   usageOurs = new Set();
-  if (!usageSetDiffRan) return;
   const live = await glam.connection.query(
     "SELECT gil_to, gil_wiki, gil_page FROM usages WHERE is_alive = true AND gil_page IS NOT NULL"
   );
   for (const r of live.rows) {
-    usageOurs.add(String(r.gil_to) + "\0" + String(r.gil_wiki) + "\0" + String(r.gil_page));
+    usageOurs.add(
+      String(r.gil_to) + "\0" + String(r.gil_wiki) + "\0" + String(r.gil_page)
+    );
   }
 }
 
