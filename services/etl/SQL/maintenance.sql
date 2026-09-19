@@ -3,6 +3,5 @@ create or replace function doMaintenance()
 returns void as $$
 begin
 insert into dailyImageUsage(img_name, count_date, count) select gil_to, CURRENT_DATE, count(*) from usages where last_seen=current_date group by gil_to on conflict do nothing;
-update usages set is_alive=false where last_seen<(current_date-5);
 end;
 $$language plpgsql;

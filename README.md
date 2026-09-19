@@ -71,6 +71,22 @@ export ENV="production"
 
 **Add a production config file inside the config folder: `./config/config.production.json` With the same structure as in `./config/config.sample.json`**
 
+### Nightly ops
+
+Migrate org DBs (run once after deploying schema changes). Applies `incremental.sql`, `functions.sql`, and `maintenance.sql` as whole files. The process must exit 0 — a `failed` line means that org did not finish; re-run migrate. Do not start cron until every active DB prints `migrated`.
+
+```bash
+ENV=production python -m etl.migrate_orgs
+```
+
+First night after migrate recrawls almost every category: old `AddCategory` did not refresh `cat_files` / `cat_subcats`, so count fingerprints miss. Nightly can run 8 Node processes with `--max-old-space-size=5120` (~40 GiB of heaps plus the dump name map). Size the ETL box for that; OOM on night one is likely RAM, not a code regression.
+
+Category fixes (set in the GLAM record, not the topic tree):
+
+- Carnavalize: `Wiki Movimento Brasil's initiative with Carnavalize` (ASCII apostrophe `'`, not a curly quote)
+- LSoEaPS: `Images from the London School of Economics`
+
+Large GLAMs: NARA and DPLoA first snapshot after pagination can run for hours; other GLAMs already run in parallel. Nightly no longer runs `REFRESH MATERIALIZED VIEW`.
 
 ### Run initdaily.sh - script that run dail.py. <br /> Run it with the following commands to do it with a daily cron job
 The daily script runs every day at 4:00 AM

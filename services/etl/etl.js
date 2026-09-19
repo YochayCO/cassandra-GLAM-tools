@@ -1,11 +1,14 @@
 const config = require("../config/config.js");
 const mariadb = require("mariadb");
+const { groupCatParents } = require("./etl_logic.js");
 
 const log = (...args) =>
   console.log(new Date().toLocaleString() + ":", ...args);
 
 const CONST_USE_PER_QUERY = 10;
 const CONST_CAT_PER_QUERY = 40;
+var IMAGE_PAGE = 10000;
+var USAGE_FLUSH = 5000;
 
 var wikiCaller;
 var images;
@@ -16,18 +19,46 @@ var countImages = 0;
 var catFreeTail = 0;
 var usages;
 var usagindex = 0;
+var usageOurs;
 var glam;
 
-async function finalize(failure) {
-  log("===========================================");
+async function finalize() {
   log("Number of categories: " + catFreeTail);
   log("Number of images: " + countImages);
-
-  if (failure === true) {
-    throw new Error('Process failed');
+  const rows = groupCatParents(catQueue, catFreeTail);
+  const titles = rows.map((r) => r.page_title);
+  const client = await glam.connection.connect();
+  try {
+    await client.query("BEGIN");
+    for (const r of rows) {
+      await client.query(
+        "INSERT INTO categories (page_title, cat_subcats, cat_files, cl_to, cat_level) " +
+          "VALUES ($1, $2, $3, $4, $5) " +
+          "ON CONFLICT (page_title) DO UPDATE SET " +
+          "cat_subcats = EXCLUDED.cat_subcats, cat_files = EXCLUDED.cat_files, " +
+          "cl_to = EXCLUDED.cl_to, cat_level = EXCLUDED.cat_level",
+        [r.page_title, r.cat_subcats, r.cat_files, r.cl_to, r.cat_level]
+      );
+    }
+    if (titles.length) {
+      await client.query(
+        "DELETE FROM categories WHERE page_title <> ALL($1::varchar[])",
+        [titles]
+      );
+    }
+    await client.query(
+      "UPDATE images SET is_alive = false WHERE NOT (cl_to && (SELECT array_agg(page_title) FROM categories))"
+    );
+    await client.query("select * from doMaintenance();");
+    await client.query("COMMIT");
+  } catch (e) {
+    try {
+      await client.query("ROLLBACK");
+    } catch (_) {}
+    throw e;
+  } finally {
+    client.release();
   }
-  log("Running doMaintenance() on glam database");
-  await glam.connection.query("select * from doMaintenance();");
 }
 
 function searchCatQueue(page) {
@@ -58,6 +89,10 @@ async function wikiOpen(starting_cat) {
     starting_cat.replace(/\'/g, "''") +
     "'";
   const rows = await wikiCaller.query(temp_query);
+  if (!rows || rows.length === 0) {
+    console.error("Category missing on replica: " + starting_cat);
+    process.exit(65);
+  }
   catQueue[0].cat_subcats = rows[0].cat_subcats;
   catQueue[0].cat_files = rows[0].cat_files;
   await getLevelChilds();
@@ -68,11 +103,6 @@ async function getLevelChilds() {
     // all visited
     await afterCategories();
     return;
-  }
-
-  if (catFreeTail >= config.limits["categories"]) {
-    log(`Number of categories(${catFreeTail}) exceeded limit in config`);
-    await finalize(true);
   }
 
   log("At " + catHead + " of " + catFreeTail);
@@ -109,31 +139,6 @@ async function getLevelChilds() {
 }
 
 async function afterCategories() {
-  let storage_query =
-    "delete from categories; update images set is_alive=false; ";
-  let i = 0;
-  while (i < catFreeTail) {
-    let temp = "";
-    let Cat = catQueue[i];
-    temp +=
-      "select * from addCategory('" +
-      Cat.page_title.replace(/'/g, "''") +
-      "'," +
-      Cat.cat_subcats +
-      "," +
-      Cat.cat_files +
-      ",'" +
-      Cat.father.replace(/'/g, "''") +
-      "'," +
-      Cat.level +
-      ");\r\n";
-    storage_query += temp;
-    i++;
-  }
-
-  log("Updating Postgres data...");
-  await glam.connection.query(storage_query);
-  log("Completed!");
   log("===========================================");
   log("Now loading images...");
   catHead = 0;
@@ -149,38 +154,71 @@ async function loadImages() {
     usages = [];
     usagindex = 0;
     catHead = 0;
+    await prepareUsages();
     await loadUsages();
     return;
   }
 
   if (countImages >= config.limits["images"]) {
     log(`The number of images (${countImages}) exceeded limit in config`);
-    await finalize(true);
   }
 
   // TODO can be optimized looking for files number and merging little cats calls
   log("At " + catHead + " of " + catFreeTail);
-  var RQ = "'" + catQueue[catHead].page_title.replace(/'/g, "''") + "'";
+  const prev = await glam.connection.query(
+    "SELECT cat_files, cat_subcats FROM categories WHERE page_title = $1",
+    [catQueue[catHead].page_title]
+  );
+  if (
+    prev.rows[0] &&
+    prev.rows[0].cat_files != null &&
+    prev.rows[0].cat_subcats != null &&
+    Number(prev.rows[0].cat_files) === Number(catQueue[catHead].cat_files) &&
+    Number(prev.rows[0].cat_subcats) === Number(catQueue[catHead].cat_subcats)
+  ) {
+    catHead++;
+    return loadImages();
+  }
+
+  var title = catQueue[catHead].page_title;
+  var RQ = "'" + title.replace(/'/g, "''") + "'";
   catHead++;
 
-  imgIndex = 0;
-  images = [];
+  const names = [];
+  let offset = 0;
+  for (;;) {
+    imgIndex = 0;
+    images = [];
+    // ponytail: OFFSET walk; keyset on img_name if a category's deep pages dominate runtime
+    var query =
+      buildImageQuery(RQ) + " LIMIT " + IMAGE_PAGE + " OFFSET " + offset;
+    const rows = await wikiCaller.query(query);
 
-  var query = buildImageQuery(RQ);
-  const rows = await wikiCaller.query(query);
-
-  for (var k = 0; k < rows.length; k++) {
-    images[imgIndex] = new Object();
-    images[imgIndex].img_name = rows[k].img_name.toString();
-    images[imgIndex].img_user_text = rows[k].img_user_text.toString();
-    images[imgIndex].img_timestamp = convertTimestamp(rows[k].img_timestamp);
-    images[imgIndex].img_size = rows[k].img_size;
-    images[imgIndex].cl_to = rows[k].cl_to.toString();
-    imgIndex++;
-    countImages++;
+    for (var k = 0; k < rows.length; k++) {
+      images[imgIndex] = new Object();
+      images[imgIndex].img_name = rows[k].img_name.toString();
+      images[imgIndex].img_user_text = rows[k].img_user_text.toString();
+      images[imgIndex].img_timestamp = convertTimestamp(rows[k].img_timestamp);
+      images[imgIndex].img_size = rows[k].img_size;
+      images[imgIndex].cl_to = rows[k].cl_to.toString();
+      names.push(images[imgIndex].img_name);
+      imgIndex++;
+      countImages++;
+    }
+    await loadImagesIntoDB();
+    if (rows.length < IMAGE_PAGE) break;
+    offset += IMAGE_PAGE;
   }
-  await loadImagesIntoDB();
-  await loadImages();
+  imgIndex = 0;
+  await glam.connection.query(
+    "UPDATE images SET cl_to = array_remove(cl_to, $1) WHERE $1 = ANY(cl_to) AND NOT (img_name = ANY($2::varchar[]))",
+    [title, names]
+  );
+  await glam.connection.query(
+    "UPDATE categories SET last_crawled_at = NOW() WHERE page_title = $1",
+    [title]
+  );
+  return loadImages();
 }
 
 var convertTimestamp = function (timestamp) {
@@ -250,42 +288,106 @@ async function loadUsages() {
   }
 
   var query = buildUsageQuery(RQ);
-  const rows = await wikiCaller.query(query);
+  let rows = await wikiCaller.query(query);
   for (var k = 0; k < rows.length; k++) {
     usages[usagindex] = new Object();
     usages[usagindex].gil_wiki = rows[k].gil_wiki;
     usages[usagindex].gil_page_title = rows[k].gil_page_title.toString();
     usages[usagindex].gil_to = rows[k].gil_to.toString();
+    usages[usagindex].gil_page = rows[k].gil_page;
     usagindex++;
+    if (usagindex >= USAGE_FLUSH) {
+      await flushUsages();
+    }
   }
-  await loadUsages();
+  rows = null;
+  return loadUsages();
 }
 
-async function afterUsages() {
+async function flushUsages() {
   let i = 0;
-  storage_query = "";
+  let storage_query = "";
   while (i < usagindex) {
-    let temp = "";
     let use = usages[i];
-    temp +=
+    if (use.gil_page != null && use.gil_page !== "") {
+      const key =
+        String(use.gil_to) +
+        "\0" +
+        String(use.gil_wiki) +
+        "\0" +
+        String(use.gil_page);
+      if (usageOurs.has(key)) {
+        usageOurs.delete(key);
+        i++;
+        continue;
+      }
+    }
+    let sql =
       "select * from addUsage('" +
       use.gil_wiki +
       "','" +
       use.gil_page_title.replace(/'/g, "''") +
       "','" +
       use.gil_to.replace(/'/g, "''") +
-      "');\r\n";
-    storage_query += temp;
+      "'";
+    if (use.gil_page != null && use.gil_page !== "") {
+      sql += "," + Number(use.gil_page);
+    }
+    storage_query += sql + ");\r\n";
     i++;
   }
+  if (storage_query) {
+    log("Updating Postgres data...");
+    await glam.connection.query(storage_query);
+  }
+  usages = [];
+  usagindex = 0;
+}
 
-  log("Updating Postgres data...");
-  await glam.connection.query(storage_query);
+async function afterUsages() {
+  await flushUsages();
+  await closeVanishedUsages();
+  await glam.connection.query(
+    "UPDATE usages SET is_alive=false WHERE is_alive = true AND gil_page IS NULL"
+  );
   await finalize();
 }
 
+async function prepareUsages() {
+  usageOurs = new Set();
+  const live = await glam.connection.query(
+    "SELECT gil_to, gil_wiki, gil_page FROM usages WHERE is_alive = true AND gil_page IS NOT NULL"
+  );
+  for (const r of live.rows) {
+    usageOurs.add(
+      String(r.gil_to) + "\0" + String(r.gil_wiki) + "\0" + String(r.gil_page)
+    );
+  }
+}
+
+async function closeVanishedUsages() {
+  if (usageOurs.size) {
+    const tos = [];
+    const wikis = [];
+    const pages = [];
+    for (const key of usageOurs) {
+      const parts = key.split("\0");
+      tos.push(parts[0]);
+      wikis.push(parts[1]);
+      pages.push(Number(parts[2]));
+    }
+    await glam.connection.query(
+      "UPDATE usages SET is_alive=false WHERE is_alive = true AND (gil_to, gil_wiki, gil_page) IN (SELECT * FROM unnest($1::varchar[], $2::varchar[], $3::int[]))",
+      [tos, wikis, pages]
+    );
+  }
+  await glam.connection.query(
+    "UPDATE usages SET last_seen=CURRENT_DATE WHERE is_alive = true AND gil_page IS NOT NULL"
+  );
+}
+
 var buildUsageQuery = function (RQ) {
-  return `SELECT gil_wiki, gil_page_title, gil_to
+  return `SELECT gil_wiki, gil_page, gil_page_title, gil_to
     FROM globalimagelinks
     JOIN image ON gil_to = img_name
     JOIN page ON img_name = page_title AND page_namespace = 6
@@ -304,7 +406,8 @@ var buildImageQuery = function (RQ) {
     JOIN actor ON img_actor = actor_id
     WHERE lt_namespace = 14
     AND lt_title IN (${RQ})
-    AND page_namespace = 6`;
+    AND page_namespace = 6
+    ORDER BY img_name`;
 };
 var buildCategoryQuery = function (RQ) {
   return `SELECT page_title, lt_title AS cl_to, cat_subcats, cat_files

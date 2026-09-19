@@ -1,51 +1,46 @@
 var config = require("../config/config.js");
 var fs = require("fs");
-var endSetup = function () {
-    console.log("Setup ended");
-    process.exit(0);
-};
+var path = require("path");
 
-var processQuery = function (db, files, step) {
-    if (step >= files.length) {
-        endSetup();
-        return;
+var DEFAULT_FILES = [
+    "db_init.sql",
+    "dailyInsert.sql",
+    "functions.sql",
+    "maintenance.sql",
+    "incremental.sql",
+];
+
+async function runSqlFiles(db, files) {
+    for (var i = 0; i < files.length; i++) {
+        var filetoRead = path.join(__dirname, "SQL", files[i]);
+        console.log(filetoRead);
+        await db.query(fs.readFileSync(filetoRead, "utf8"));
     }
-    filetoRead = `${__dirname}/SQL/${files[step]}`;
-    console.log(filetoRead);
-    fs.readFile(filetoRead, 'ascii', function (_, read) {
-        // console.log("Executing: ");
-        read = read.toString('ascii');
-        // console.log(read);
-        db.query(read, function (err, b) {
-            if (!err) {
-                processQuery(db, files, step+1);
-            }
-            else {
-                console.log("Error in step " + step);
-                console.log(err);
-                endSetup();
-                return;
-            }
-        })
-    })
-};
-
-
-if (process.argv.length != 3) {
-    console.log('Missing GLAM name');
-    process.exit(1);
 }
 
-config.loadGlams().then((glams) => {
-    var glam = glams[process.argv[2]];
-
-    if (glam === undefined) {
-        console.log('Unknown GLAM name');
+async function main() {
+    if (process.argv.length < 3) {
+        console.log("Missing GLAM name");
         process.exit(1);
     }
-    
-    var files = ["db_init.sql", "dailyInsert.sql", "functions.sql", "maintenance.sql"];
-
+    var name = process.argv[2];
+    var files = process.argv.length > 3 ? process.argv.slice(3) : DEFAULT_FILES;
+    var glams = await config.loadGlams();
+    var glam = glams[name];
+    if (glam === undefined) {
+        console.log("Unknown GLAM name");
+        process.exit(1);
+    }
     console.log("Setup started");
-    processQuery(glam.connection, files, 0);
-});
+    try {
+        await runSqlFiles(glam.connection, files);
+    } catch (err) {
+        console.log("Error applying SQL");
+        console.log(err);
+        process.exit(1);
+    }
+    console.log("Setup ended");
+    process.exit(0);
+}
+
+main();

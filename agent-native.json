@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "apps": {
+    "visualize-repo": {
+      "mode": "local-files",
+      "root": ".agent-native/visual-docs",
+      "entry": ".agent-native/visual-docs/repo-overview",
+      "targets": [
+        {
+          "id": "app-pages",
+          "name": "Pages",
+          "kind": "area",
+          "include": [
+            "app/pages"
+          ],
+          "blocks": [
+            "file-tree",
+            "diagram",
+            "annotated-code"
+          ],
+          "policy": "seed"
+        },
+        {
+          "id": "app-routes",
+          "name": "Routes",
+          "kind": "area",
+          "include": [
+            "app/routes",
+            "app/routes.js"
+          ],
+          "blocks": [
+            "file-tree",
+            "diagram",
+            "annotated-code"
+          ],
+          "policy": "seed"
+        }
+      ],
+      "hide": [
+        "**/node_modules/**",
+        "**/.git/**",
+        "**/dist/**",
+        "**/build/**",
+        "**/.agent-native/**"
+      ]
+    }
+  }
+}

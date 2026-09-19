@@ -10,9 +10,19 @@ if not os.path.exists("Logs"):
 logging.basicConfig(filename=f"Logs/cronjob_{date.today().strftime('%Y-%m-%d')}.log", filemode='a', level=logging.INFO, force=True)
 
 def _etl(name):
-    logging.info(' %s Running etl.js for %s', datetime.now(), name)
-    subprocess.run(['node', '--max-old-space-size=5120', f'{__package__}/etl.js', name], check=True)
-    logging.info(' %s Subprocess etl.js completed', datetime.now())
+    p = subprocess.Popen(
+        ['node', '--max-old-space-size=5120', f'{__package__}/etl.js', name],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    for line in p.stdout:
+        logging.info('%s', line.rstrip('\n'))
+    rc = p.wait()
+    if rc != 0:
+        logging.error('etl.js returncode %s', rc)
+        raise subprocess.CalledProcessError(rc, p.args)
 
 
 def process_glam(glam):

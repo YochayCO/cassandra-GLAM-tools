@@ -4,8 +4,7 @@ import os
 from datetime import datetime, date, timedelta
 import subprocess
 from config import config
-from etl.mediacounts_dump import dailyinsert_from_file
-from etl.glams_table import close_glams_connections, create_database, get_glam_by_name, load_glams_images, open_glams_connections, refresh_glams_visualizations
+from etl.glams_table import close_glams_connections, create_database, get_glam_by_name, load_glams_images, open_glams_connections
 from etl.etl_glam import process_glam
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
@@ -76,9 +75,6 @@ class MyServer(BaseHTTPRequestHandler):
             load_glams_images(glams)
             close_glams_connections(glams)
             _process_mediacounts(glams)
-            open_glams_connections(glams)
-            refresh_glams_visualizations(glams)
-            close_glams_connections(glams)
             logging.info(f" {datetime.now()} Done adding {len(glams)} glams: {', '.join(map(lambda glam: glam['name'], glams))}")
 
 if __name__ == "__main__":
